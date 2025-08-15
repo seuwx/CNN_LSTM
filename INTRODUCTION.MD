@@ -1,0 +1,6 @@
+模型的训练在配备飞桨ai studio paddle paddle平台上进行，运行 Ubuntu 20.04 操作系统，安装PaddlePaddle 2.4.2和CUDA 11.2，该预测模式神经网络是基于 CNN - LSTM 架构首先，环境与参数初始化环节，通过导入 os paddle 等库搭建基础环境，定义data_dir save_dir等路径并创建保存目录；同时对类别值（不同浓度）先取对数减小标题类别之间的浓度梯度、再用 StandardScaler 标准化，缓解数据跨度大的问题，为后续训练做准备。
+接着，数据增强与变换定义 ，借助 CustomTransform 实现随机锐化等自定义增强和多项式裁剪跟中心裁剪，得到数据集中心优质部分图片进行训练，结合 paddle.vision.transforms 中的 Resize RandomCrop 等操作，分别构建 train_transform（含丰富增强，提升模型泛化性 ）和 valid_transform（仅基础变换，保证评估一致性 ）。
+然后进入数据集构建，ConcentrationDataset 类遍历类别目录与子目录（按 phase 区分训练 / 验证集 ），用滑动窗口构建时序图像序列（连续 5 张图为一个样本 ），getitem方法加载并处理图像（含异常处理，如返回黑色图像应对文件损坏 ），输出序列张量与标签；inverse_transform 则支持训练后将标准化预测值转回原始浓度尺度，打通 “预测 - 还原” 链路。
+模型搭建环节，CNNLSTM 类整合多模块：复用预训练 resnet18 提取图像空间特征，经 BatchNorm1D 归一化；调整维度后输入双向 LSTM 挖掘时序依赖，输出维度因双向性翻倍；再通过 MultiHeadAttentionLayer 强化关键时序信息，最后经 Dropout 与 Linear 层输出回归预测值，实现 “空间特征提取→时序建模→注意力强化→回归输出” 的完整逻辑。
+训练流程中，先实例化训练 / 验证数据集，用 DataLoader 按批次加载（训练集打乱、验证集保序 ，初始化模型后，配置 ClipGradByGlobalNorm 防梯度爆炸，选 SmoothL1Loss 应对异常值，用 AdamW 优化器结合 CosineAnnealingDecay 调度器动态调参，辅以 weight_decay 正则化。训练循环里，训练阶段让模型在增强数据上学习，累加损失并更新参数；验证阶段切换 eval 模式，转预测值回原始尺度后计算 RMSE、R² 等指标；监测验证集 RMSE 保存最优模型，训练结束后存最终模型与优化器状态。
+最后，结果可视化通过绘制训练 / 验证损失曲线（观察收敛情况）等图表进行模型训练过程数据可视化，最后调用以及训练好的模型绘制图表进行评估模型。
